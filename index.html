@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EinfachEmail Pro - AI Powered</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Firebase SDKs (Compat) -->
+  <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .sidebar-item-active { background-color: #fee2e2; color: #dc2626; border-radius: 0 9999px 9999px 0; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+    .email-item:hover { box-shadow: inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15); z-index: 10; }
+    #editor:focus { outline: none; }
+    .ai-glow { animation: glow 2s infinite alternate; }
+    @keyframes glow { from { box-shadow: 0 0 5px rgba(239, 68, 68, 0.2); } to { box-shadow: 0 0 15px rgba(239, 68, 68, 0.5); } }
+    .loading-dots:after { content: '.'; animation: dots 1.5s steps(5, end) infinite; }
+    @keyframes dots { 0%, 20% { content: '.'; } 40% { content: '..'; } 60% { content: '...'; } 80%, 100% { content: ''; } }
+  </style>
+</head>
+<body class="bg-[#f6f8fc] h-screen overflow-hidden text-gray-800">
+
+  <!-- Auth / Login Overlay -->
+  <div id="loginScreen" class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white">
+    <div class="text-center p-10 max-w-sm">
+      <div class="text-red-600 mb-6"><i data-lucide="mail" class="w-20 h-20 fill-current mx-auto"></i></div>
+      <h1 class="text-3xl font-bold mb-2">EinfachEmail Pro</h1>
+      <p class="text-gray-500 mb-8">Echter Gmail Zugriff & Gemini KI Unterstützung.</p>
+      <button id="loginBtn" class="flex items-center gap-3 bg-white border border-gray-300 hover:bg-gray-50 px-6 py-3 rounded-full font-medium transition-all shadow-sm w-full justify-center">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5">
+        <span>Mit Google anmelden</span>
+      </button>
+      <p id="authError" class="text-red-500 text-xs mt-4 hidden"></p>
+    </div>
+  </div>
+
+  <!-- Main Layout -->
+  <div id="app" class="flex flex-col h-full opacity-0 transition-opacity duration-500">
+    <!-- Header -->
+    <header class="h-16 flex items-center justify-between px-4 bg-[#f6f8fc]">
+      <div class="flex items-center gap-4 w-64">
+        <button class="p-2 hover:bg-gray-200 rounded-full"><i data-lucide="menu" class="w-5 h-5"></i></button>
+        <div class="flex items-center gap-2 text-red-600 font-bold text-xl">
+          <i data-lucide="mail" class="w-8 h-8 fill-current"></i>
+          <span>EinfachEmail</span>
+        </div>
+      </div>
+       
+      <div class="flex-1 max-w-2xl px-4">
+        <div class="relative group">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+            <i data-lucide="search" class="w-5 h-5"></i>
+          </div>
+          <input type="text" id="searchInput" placeholder="E-Mails durchsuchen..." 
+              class="block w-full pl-10 pr-3 py-3 bg-[#eaf1fb] border-none rounded-xl focus:ring-2 focus:ring-white focus:bg-white transition-all">
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 w-64 justify-end">
+        <button onclick="toggleSettings(true)" class="p-2 hover:bg-gray-200 rounded-full"><i data-lucide="settings" class="w-5 h-5"></i></button>
+        <div id="userAvatar" class="w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center font-bold text-sm ml-2">?</div>
+      </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+      <!-- Sidebar -->
+      <aside class="w-64 pr-4 py-2 flex flex-col h-full">
+        <button id="composeBtn" class="ml-2 mb-4 flex items-center gap-3 bg-[#c2e7ff] hover:shadow-lg transition-all px-6 py-4 rounded-2xl font-medium">
+          <i data-lucide="edit-3" class="w-5 h-5"></i>
+          <span>Schreiben</span>
+        </button>
+
+        <nav class="flex-1 space-y-1">
+          <a href="#" onclick="fetchEmails('INBOX')" class="flex items-center justify-between px-6 py-2 sidebar-item-active" id="nav-inbox">
+            <div class="flex items-center gap-4"><i data-lucide="inbox" class="w-5 h-5"></i> Posteingang</div>
+          </a>
+          <a href="#" onclick="fetchEmails('SENT')" class="flex items-center gap-4 px-6 py-2 hover:bg-gray-200 rounded-r-full" id="nav-sent">
+            <i data-lucide="send" class="w-5 h-5"></i> Gesendet
+          </a>
+          <a href="#" onclick="fetchEmails('TRASH')" class="flex items-center gap-4 px-6 py-2 hover:bg-gray-200 rounded-r-full" id="nav-trash">
+            <i data-lucide="trash-2" class="w-5 h-5"></i> Papierkorb
+          </a>
+        </nav>
+         
+        <div id="aiStatusSidebar" class="mx-4 p-4 bg-red-50 rounded-2xl mb-4 hidden border border-red-100">
+          <div class="flex items-center gap-2 text-red-600 font-bold text-xs mb-1">
+            <i data-lucide="sparkles" class="w-3 h-3"></i> Gemini AI Aktiv
+          </div>
+          <p class="text-[10px] text-gray-500">Intelligente Features sind bereit.</p>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="flex-1 bg-white rounded-3xl mr-4 mb-4 shadow-sm flex flex-col overflow-hidden relative">
+        <div class="h-12 border-b border-gray-100 flex items-center justify-between px-4">
+          <div class="flex items-center gap-4 text-gray-600">
+            <input type="checkbox" class="rounded border-gray-300">
+            <button onclick="fetchEmails()" class="p-2 hover:bg-gray-100 rounded-full"><i data-lucide="rotate-cw" class="w-4 h-4"></i></button>
+          </div>
+        </div>
+
+        <div id="emailList" class="flex-1 overflow-y-auto custom-scrollbar">
+          <div class="flex items-center justify-center h-full text-gray-400">Verbinde mit Gmail...</div>
+        </div>
+
+        <!-- Email Detail View -->
+        <div id="emailView" class="hidden absolute inset-0 bg-white z-20 flex flex-col p-8 overflow-y-auto custom-scrollbar">
+          <div class="flex items-center mb-6">
+            <button onclick="closeEmailView()" class="p-2 hover:bg-gray-100 rounded-full mr-4"><i data-lucide="arrow-left" class="w-5 h-5"></i></button>
+            <h2 id="viewSubject" class="text-2xl font-normal flex-1">Subjekt</h2>
+            <div class="flex gap-2">
+              <button id="aiSummarizeBtn" class="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 hidden transition-all">
+                <i data-lucide="sparkles" class="w-4 h-4"></i> Zusammenfassen
+              </button>
+              <button id="aiReplyBtn" class="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium hover:bg-blue-100 hidden transition-all">
+                <i data-lucide="message-square" class="w-4 h-4"></i> KI-Antwort
+              </button>
+            </div>
+          </div>
+           
+          <!-- AI Summary Box -->
+          <div id="aiSummaryBox" class="hidden mb-6 p-4 bg-gradient-to-r from-red-50 to-white border border-red-100 rounded-2xl relative overflow-hidden">
+            <div class="flex items-center gap-2 text-red-600 font-bold text-xs mb-2 uppercase tracking-wider">
+              <i data-lucide="zap" class="w-3 h-3"></i> KI-Zusammenfassung
+              <button onclick="this.parentElement.parentElement.classList.add('hidden')" class="absolute top-2 right-2 text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <p id="aiSummaryText" class="text-sm text-gray-700 italic">Analysiere E-Mail...</p>
+          </div>
+
+          <div class="flex items-start gap-4 mb-6">
+            <div id="viewAvatar" class="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center font-bold text-lg">?</div>
+            <div class="flex-1">
+              <div class="flex justify-between">
+                <span id="viewFrom" class="font-bold"></span>
+                <span id="viewDate" class="text-gray-500 text-sm"></span>
+              </div>
+              <div class="text-gray-500 text-xs">an mich</div>
+            </div>
+          </div>
+          <div id="viewBody" class="text-gray-800 leading-relaxed pl-16 whitespace-pre-wrap"></div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Compose Modal -->
+    <div id="composeModal" class="hidden fixed bottom-0 right-16 w-[650px] h-[600px] bg-white rounded-t-xl shadow-2xl border border-gray-200 z-50 flex flex-col">
+      <div class="bg-[#f2f6fc] px-4 py-3 rounded-t-xl flex justify-between items-center">
+        <span class="font-medium text-sm text-gray-700">Neue Nachricht</span>
+        <button onclick="toggleCompose(false)" class="p-1 hover:bg-gray-200 rounded"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+      <div class="flex-1 p-4 flex flex-col gap-2 overflow-hidden">
+        <input type="text" id="composeTo" placeholder="Empfänger" class="w-full py-2 border-b border-gray-100 focus:outline-none">
+        <input type="text" id="composeSubject" placeholder="Betreff" class="w-full py-2 border-b border-gray-100 focus:outline-none">
+         
+        <!-- Toolbar for AI Assist in Editor -->
+        <div id="aiAssistBar" class="flex gap-2 py-2 border-b border-gray-50 hidden">
+          <button onclick="aiEditorAction('fix')" class="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-gray-600 flex items-center gap-1">
+            <i data-lucide="check-check" class="w-3 h-3"></i> Grammatik fixen
+          </button>
+          <button onclick="aiEditorAction('formal')" class="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-gray-600 flex items-center gap-1">
+            <i data-lucide="briefcase" class="w-3 h-3"></i> Förmlicher machen
+          </button>
+          <button onclick="aiEditorAction('shorten')" class="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-gray-600 flex items-center gap-1">
+            <i data-lucide="scissors" class="w-3 h-3"></i> Kürzen
+          </button>
+        </div>
+
+        <!-- Rich Text Editor -->
+        <div id="editor" contenteditable="true" class="flex-1 w-full py-4 overflow-y-auto custom-scrollbar focus:outline-none text-sm leading-relaxed" placeholder="Schreibe etwas..."></div>
+      </div>
+      <div class="p-4 flex items-center justify-between border-t border-gray-100 bg-gray-50">
+        <div class="flex items-center gap-4">
+          <button id="sendEmailBtn" class="bg-[#0b57d0] hover:bg-[#0842a0] text-white px-8 py-2 rounded-full font-medium transition-colors">Senden</button>
+          <button id="aiDraftBtn" class="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-full text-sm font-medium hover:bg-red-50 hidden transition-all">
+            <i data-lucide="sparkles" class="w-4 h-4"></i> KI Entwurf
+          </button>
+        </div>
+        <div id="editorLoading" class="hidden text-xs text-red-500 font-medium loading-dots italic">Gemini denkt nach</div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="hidden fixed inset-0 z-[110] bg-black/50 flex items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+        <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+          <h3 class="text-xl font-bold flex items-center gap-2"><i data-lucide="settings" class="w-5 h-5"></i> Einstellungen</h3>
+          <button onclick="toggleSettings(false)" class="p-2 hover:bg-gray-100 rounded-full"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="p-6 space-y-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="font-bold">Gemini KI aktivieren</p>
+              <p class="text-xs text-gray-500">Nutze Gemini für Zusammenfassungen und Entwürfe.</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="aiToggle" class="sr-only peer">
+              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+            </label>
+          </div>
+          <div id="apiKeySection" class="hidden">
+            <p class="font-bold mb-2">Gemini API Key</p>
+            <input type="password" id="geminiApiKey" placeholder="Dein API Key hier..." class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none">
+            <p class="text-[10px] text-gray-400 mt-2">Holen unter: aistudio.google.com</p>
+          </div>
+          <button id="saveSettingsBtn" class="w-full bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition-colors">Speichern</button>
+          <button onclick="auth.signOut().then(() => window.location.reload())" class="w-full text-red-600 py-3 text-sm hover:underline">Google-Konto abmelden</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-xl shadow-2xl opacity-0 transition-opacity pointer-events-none z-[200]"></div>
+  </div>
+
+  <script>
+    // --- CONSTANTS & FIREBASE ---
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'einfach-email-pro';
+    // Firebase config – apiKey provided by user
+    const firebaseConfig = {
+      apiKey: "BOR4VFyViDoUcAsJbJi_xuJmuPW_N9A2g828PCk7Ka64KGK4qSRCaaO5WqM-pEaqaXUYNOdl55d5qnQ2DrU3p6A",
+      authDomain: "einfach-email-pro.firebaseapp.com",
+      projectId: "einfach-email-pro",
+      storageBucket: "einfach-email-pro.appspot.com",
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/gmail.modify');
+    provider.addScope('https://www.googleapis.com/auth/gmail.send');
+
+    let accessToken = null;
+    let currentUser = null;
+    let userSettings = { aiActive: false, apiKey: "" };
+    let activeEmails = [];
+    let currentEmailId = null;
+
+    // --- AUTH FLOW ---
+    document.getElementById('loginBtn').onclick = async () => {
+      try {
+        const result = await auth.signInWithPopup(provider);
+        accessToken = result.credential.accessToken;
+        currentUser = result.user;
+        initApp();
+      } catch (error) {
+        console.error(error);
+        document.getElementById('authError').innerText = "Login fehlgeschlagen. Bitte versuche es erneut.";
+        document.getElementById('authError').classList.remove('hidden');
+      }
+    };
+
+    async function initApp() {
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('app').classList.remove('opacity-0');
+      document.getElementById('userAvatar').innerText = currentUser.displayName[0];
+       
+      // Load Settings from Firestore
+      const settingsRef = db.doc(`artifacts/${appId}/users/${currentUser.uid}/settings/main`);
+      const doc = await settingsRef.get();
+      if (doc.exists) {
+        userSettings = doc.data();
+        document.getElementById('aiToggle').checked = userSettings.aiActive;
+        document.getElementById('geminiApiKey').value = userSettings.apiKey || "";
+        if (userSettings.aiActive) document.getElementById('apiKeySection').classList.remove('hidden');
+      }
+
+      applyAiState();
+      fetchEmails('INBOX');
+      lucide.createIcons();
+    }
+
+    // --- GMAIL API ---
+    async function fetchGmail(endpoint, options = {}) {
+      const res = await fetch(`https://gmail.googleapis.com/v1/users/me/${endpoint}`, {
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          ...options.headers
+        }
+      });
+      if (!res.ok) throw new Error(`Gmail API: ${res.status}`);
+      return res.json();
+    }
+
+    async function fetchEmails(label = 'INBOX') {
+      const list = document.getElementById('emailList');
+      list.innerHTML = `<div class="flex items-center justify-center h-full"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div></div>`;
+       
+      // Update UI Sidebar
+      document.querySelectorAll('nav a').forEach(a => a.classList.remove('sidebar-item-active'));
+      const map = {'INBOX': 'nav-inbox', 'SENT': 'nav-sent', 'TRASH': 'nav-trash'};
+      if(map[label]) document.getElementById(map[label]).classList.add('sidebar-item-active');
+
+      try {
+        const data = await fetchGmail(`messages?maxResults=25&labelIds=${label}`);
+        if (!data.messages) {
+          list.innerHTML = `<div class="p-10 text-center text-gray-400">Keine E-Mails gefunden.</div>`;
+          return;
+        }
+        const details = await Promise.all(data.messages.map(m => fetchGmail(`messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`)));
+        activeEmails = details;
+        renderEmailList(details);
+      } catch (err) {
+        showToast("Gmail konnte nicht geladen werden.");
+      }
+    }
+
+    function renderEmailList(messages) {
+      const list = document.getElementById('emailList');
+      list.innerHTML = messages.map(msg => {
+        const headers = msg.payload.headers;
+        const getH = (n) => headers.find(h => h.name === n)?.value || '';
+        const from = getH('From').split('<')[0].replace(/"/g, '').trim();
+        const subject = getH('Subject') || '(Kein Betreff)';
+        const date = new Date(getH('Date')).toLocaleDateString('de-DE', {day:'2-digit', month:'short'});
+        const isUnread = msg.labelIds.includes('UNREAD');
+
+        return `
+          <div onclick="viewEmail('${msg.id}')" class="email-item flex items-center px-4 py-2 border-b border-gray-100 cursor-pointer ${isUnread ? 'bg-[#f2f6fc] font-bold' : 'bg-white font-normal'}">
+            <div class="flex items-center gap-3 w-64 flex-shrink-0">
+              <input type="checkbox" onclick="event.stopPropagation()" class="rounded border-gray-300">
+              <i data-lucide="star" class="w-4 h-4 text-gray-300"></i>
+              <span class="truncate text-sm">${from}</span>
+            </div>
+            <div class="flex-1 flex gap-2 overflow-hidden items-center pr-4">
+              <span class="truncate text-sm">${subject}</span>
+              <span class="text-gray-400 font-normal text-sm">-</span>
+              <span class="text-gray-400 font-normal text-sm truncate">${msg.snippet}</span>
+            </div>
+            <div class="w-16 text-right text-xs text-gray-500">${date}</div>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    async function viewEmail(id) {
+      currentEmailId = id;
+      const email = activeEmails.find(e => e.id === id);
+      const view = document.getElementById('emailView');
+      view.classList.remove('hidden');
+      document.getElementById('viewBody').innerText = "Inhalt wird geladen...";
+      document.getElementById('aiSummaryBox').classList.add('hidden');
+
+      try {
+        const fullMsg = await fetchGmail(`messages/${id}`);
+        const getH = (n) => fullMsg.payload.headers.find(h => h.name === n)?.value || '';
+         
+        document.getElementById('viewSubject').innerText = getH('Subject');
+        document.getElementById('viewFrom').innerText = getH('From');
+        document.getElementById('viewDate').innerText = getH('Date');
+        document.getElementById('viewAvatar').innerText = getH('From')[0].toUpperCase();
+
+        // Simple Decoder
+        let body = "";
+        const parts = fullMsg.payload.parts || [fullMsg.payload];
+        const findBody = (p) => {
+          if (p.mimeType === 'text/plain') body = atob(p.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+          if (p.parts) p.parts.forEach(findBody);
+        };
+        parts.forEach(findBody);
+        document.getElementById('viewBody').innerText = body || "[Kein Textinhalt verfügbar]";
+         
+        // Mark as read
+        if (fullMsg.labelIds.includes('UNREAD')) {
+          fetchGmail(`messages/${id}/modify`, { method:'POST', body: JSON.stringify({ removeLabelIds:['UNREAD']}) });
+        }
+      } catch (err) {
+        showToast("Fehler beim Öffnen.");
+      }
+    }
+
+    // --- GEMINI AI INTEGRATION ---
+    async function askGemini(prompt) {
+      const apiKey = userSettings.apiKey;
+      if (!apiKey) {
+        showToast("Bitte gib deinen Gemini API Key in den Einstellungen ein.");
+        return null;
+      }
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      const payload = { contents: [{ parts: [{ text: prompt }] }] };
+
+      let delay = 1000;
+      for (let i = 0; i < 5; i++) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+          if (res.status === 429) throw new Error("Rate limited");
+          const data = await res.json();
+          return data.candidates?.[0]?.content?.parts?.[0]?.text;
+        } catch (err) {
+          if (i === 4) throw err;
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+        }
+      }
+    }
+
+    async function aiSummarize() {
+      const body = document.getElementById('viewBody').innerText;
+      const box = document.getElementById('aiSummaryBox');
+      const text = document.getElementById('aiSummaryText');
+       
+      box.classList.remove('hidden');
+      text.innerText = "Zusammenfassung wird generiert...";
+       
+      try {
+        const summary = await askGemini(`Fasse diese E-Mail kurz und knackig in 3-4 Sätzen zusammen:\n\n${body}`);
+        if (summary) text.innerText = summary;
+      } catch (err) {
+        text.innerText = "Fehler bei der KI-Zusammenfassung.";
+      }
+    }
+
+    async function aiReplySuggestion() {
+      const body = document.getElementById('viewBody').innerText;
+      const from = document.getElementById('viewFrom').innerText;
+      toggleCompose(true);
+      document.getElementById('editor').innerText = "KI schreibt Antwort...";
+      document.getElementById('editorLoading').classList.remove('hidden');
+
+      try {
+        const reply = await askGemini(`Schreibe eine freundliche, professionelle Antwort auf diese E-Mail von ${from}. Hier ist der Inhalt der Mail:\n\n${body}`);
+        if (reply) {
+          document.getElementById('editor').innerText = reply;
+          document.getElementById('composeTo').value = from.match(/<(.+)>/)?.[1] || from;
+          document.getElementById('composeSubject').value = "Re: " + document.getElementById('viewSubject').innerText;
+        }
+      } catch (err) {
+        showToast("KI konnte keine Antwort generieren.");
+      } finally {
+        document.getElementById('editorLoading').classList.add('hidden');
+      }
+    }
+
+    async function aiEditorAction(type) {
+      const content = document.getElementById('editor').innerText;
+      if (!content) return;
+      document.getElementById('editorLoading').classList.remove('hidden');
+       
+      let prompt = "";
+      if (type === 'fix') prompt = `Korrigiere nur die Grammatik und Rechtschreibung dieses Textes, behalte den Stil bei: ${content}`;
+      if (type === 'formal') prompt = `Schreibe diesen Text in eine sehr formelle und professionelle E-Mail um: ${content}`;
+      if (type === 'shorten') prompt = `Kürze diesen Text auf das Wesentliche für eine schnelle E-Mail: ${content}`;
+
+      try {
+        const result = await askGemini(prompt);
+        if (result) document.getElementById('editor').innerText = result;
+      } catch (err) {
+        showToast("KI Bearbeitung fehlgeschlagen.");
+      } finally {
+        document.getElementById('editorLoading').classList.add('hidden');
+      }
+    }
+
+    async function aiDraft() {
+      const subject = document.getElementById('composeSubject').value;
+      if (!subject) return showToast("Bitte gib erst einen Betreff an, damit die KI weiß worum es geht.");
+       
+      document.getElementById('editorLoading').classList.remove('hidden');
+      try {
+        const draft = await askGemini(`Schreibe einen vollständigen E-Mail Entwurf zum Thema: ${subject}. Nutze einen modernen Stil.`);
+        if (draft) document.getElementById('editor').innerText = draft;
+      } catch (err) {
+        showToast("Fehler beim Entwurf.");
+      } finally {
+        document.getElementById('editorLoading').classList.add('hidden');
+      }
+    }
+
+    // --- UI ACTIONS ---
+    function toggleSettings(show) {
+      document.getElementById('settingsModal').classList.toggle('hidden', !show);
+    }
+
+    function toggleCompose(show) {
+      document.getElementById('composeModal').classList.toggle('hidden', !show);
+    }
+
+    function closeEmailView() {
+      document.getElementById('emailView').classList.add('hidden');
+      currentEmailId = null;
+    }
+
+    function applyAiState() {
+      const active = userSettings.aiActive;
+      document.getElementById('aiStatusSidebar').classList.toggle('hidden', !active);
+      document.getElementById('aiSummarizeBtn').classList.toggle('hidden', !active);
+      document.getElementById('aiReplyBtn').classList.toggle('hidden', !active);
+      document.getElementById('aiDraftBtn').classList.toggle('hidden', !active);
+      document.getElementById('aiAssistBar').classList.toggle('hidden', !active);
+    }
+
+    async function saveSettings() {
+      const active = document.getElementById('aiToggle').checked;
+      const key = document.getElementById('geminiApiKey').value;
+       
+      userSettings = { aiActive: active, apiKey: key };
+       
+      try {
+        await db.doc(`artifacts/${appId}/users/${currentUser.uid}/settings/main`).set(userSettings);
+        applyAiState();
+        toggleSettings(false);
+        showToast("Einstellungen gespeichert.");
+      } catch (err) {
+        showToast("Fehler beim Speichern in Firestore.");
+      }
+    }
+
+    async function sendEmail() {
+      const to = document.getElementById('composeTo').value;
+      const subject = document.getElementById('composeSubject').value;
+      const body = document.getElementById('editor').innerText;
+
+      if (!to || !subject) return showToast("Empfänger & Betreff benötigt.");
+
+      const rawContent = [
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        body
+      ].join("\n");
+
+      const encoded = btoa(unescape(encodeURIComponent(rawContent))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+      try {
+        await fetchGmail('messages/send', {
+          method: 'POST',
+          body: JSON.stringify({ raw: encoded })
+        });
+        showToast("E-Mail erfolgreich versendet!");
+        toggleCompose(false);
+      } catch (err) {
+        showToast("Senden fehlgeschlagen.");
+      }
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.classList.remove('opacity-0');
+      setTimeout(() => t.classList.add('opacity-0'), 3000);
+    }
+
+    // --- EVENT LISTENERS ---
+    document.getElementById('aiToggle').onchange = (e) => {
+      document.getElementById('apiKeySection').classList.toggle('hidden', !e.target.checked);
+    };
+    document.getElementById('saveSettingsBtn').onclick = saveSettings;
+    document.getElementById('composeBtn').onclick = () => toggleCompose(true);
+    document.getElementById('sendEmailBtn').onclick = sendEmail;
+    document.getElementById('aiSummarizeBtn').onclick = aiSummarize;
+    document.getElementById('aiReplyBtn').onclick = aiReplySuggestion;
+    document.getElementById('aiDraftBtn').onclick = aiDraft;
+    document.getElementById('searchInput').oninput = (e) => {
+      const val = e.target.value.toLowerCase();
+      const filtered = activeEmails.filter(m => m.snippet.toLowerCase().includes(val));
+      renderEmailList(filtered);
+    };
+
+    // Listen for Auth changes
+    auth.onAuthStateChanged(user => {
+      if (user && !accessToken) {
+        // If already logged in but session refresh, reload
+        window.location.reload();
+      }
+    });
+
+  </script>
+</body>
+</html>
